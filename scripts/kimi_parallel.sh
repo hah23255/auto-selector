@@ -237,7 +237,7 @@ echo "  schema mode: $SCHEMA_MODE"
 echo "  results dir: $RESULTS_DIR"
 echo
 
-declare -a NAMES PIDS WORKDIRS BRANCHES SCHEMAS
+declare -a NAMES PIDS WORKDIRS BRANCHES SCHEMAS START_EPOCHS
 run_count=0
 failed_prelaunch=0
 
@@ -331,6 +331,7 @@ $(cat "$bschema")"
 	WORKDIRS+=("$workdir")
 	BRANCHES+=("$branch")
 	SCHEMAS+=("$bschema")
+	START_EPOCHS+=("$(date +%s)")
 	return 0
 }
 
@@ -369,8 +370,10 @@ log_tail_matches_quota() { # LOGFILE -> 0 if quota/auth failure text present
 failed=0
 quota_seen=0
 partial=0
+mkdir -p "$REPO/.kimi-runs"
 for i in "${!PIDS[@]}"; do
 	if wait "${PIDS[$i]}"; then
+		rc=0
 		status="OK"
 		schema="${SCHEMAS[$i]}"
 		if [[ -n "$schema" && "$SCHEMA_MODE" != "warn" ]]; then
@@ -416,6 +419,17 @@ for i in "${!PIDS[@]}"; do
 	fi
 	printf "  %-16s [%s]  branch: %-24s log: %s\n" \
 		"$status" "${NAMES[$i]}" "${BRANCHES[$i]}" "$RESULTS_DIR/${NAMES[$i]}.log"
+
+	end_epoch=$(date +%s)
+	secs=$((end_epoch - ${START_EPOCHS[$i]}))
+	jq -cn \
+		--arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		--arg run "$TS" \
+		--arg name "${NAMES[$i]}" \
+		--arg status "$status" \
+		--argjson rc "$rc" \
+		--argjson secs "$secs" \
+		'{ts: $ts, run: $run, name: $name, status: $status, rc: $rc, secs: $secs}' >> "$REPO/.kimi-runs/summary.jsonl" 2>/dev/null || true
 done
 
 if [[ $quota_seen -eq 1 ]]; then
@@ -431,6 +445,7 @@ fi
 # PARTIAL counts as succeeded by design (salvaged output is reviewable), but is
 # surfaced here so a salvaged run is never mistaken for a fully clean one.
 echo "Done. $((run_count - failed))/$((run_count + failed_prelaunch)) agent(s) succeeded ($partial partial)."
+echo "summary: $REPO/.kimi-runs/summary.jsonl"
 # Exit = failure count, capped: 256 failures would wrap to exit 0.
 total_failed=$((failed + failed_prelaunch))
 [[ $total_failed -gt 254 ]] && total_failed=254

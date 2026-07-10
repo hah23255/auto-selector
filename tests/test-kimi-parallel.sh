@@ -3,6 +3,7 @@
 # Uses a fake `kimi` shim on PATH — burns zero quota.
 # Usage: test-kimi-parallel.sh /path/to/kimi_parallel.sh
 KP="${1:?usage: test-kimi-parallel.sh <kimi_parallel.sh>}"
+[[ "$KP" == /* ]] || KP="$(cd "$(dirname "$KP")" && pwd)/$(basename "$KP")"
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
@@ -52,6 +53,9 @@ rc=$?
 [ $rc -eq 0 ] && ok "exit 0 on success" || ko "exit 0 on success (rc=$rc)"
 echo "$out" | grep -q "2/2 agent(s) succeeded" && ok "2/2 reported" || ko "2/2 reported"
 grep -q "task done" "$T/r3/brief-one.log" 2>/dev/null && ok "log captured" || ko "log captured"
+lines=$(wc -l <"$W/.kimi-runs/summary.jsonl" 2>/dev/null || echo 0)
+[ "$lines" -eq 2 ] && ok "summary.jsonl has 2 lines" || ko "summary.jsonl has 2 lines (got $lines)"
+[ "$(jq -r '.status' "$W/.kimi-runs/summary.jsonl" | grep -xc OK)" -eq 2 ] && ok "summary lines jq-parseable and status OK" || ko "summary lines jq-parseable and status OK"
 
 echo "== T4 timeout enforcement =="
 start=$(date +%s)
@@ -61,6 +65,7 @@ took=$(($(date +%s) - start))
 [ $rc -ne 0 ] && ok "nonzero exit on timeout" || ko "nonzero exit on timeout"
 echo "$out" | grep -q "FAILED(timeout)" && ok "FAILED(timeout) classified" || ko "FAILED(timeout) classified (out: $(echo "$out" | tail -3))"
 [ "$took" -lt 60 ] && ok "killed promptly (${took}s)" || ko "killed promptly (took ${took}s)"
+tail -n 1 "$W/.kimi-runs/summary.jsonl" | jq -e 'select(.status == "FAILED(timeout)")' >/dev/null 2>&1 && ok "timeout record in summary has status FAILED(timeout)" || ko "timeout record in summary has status FAILED(timeout)"
 
 echo "== T5 quota classification =="
 out=$(FAKE_KIMI_MODE=quota bash "$KP" --repo "$W" --results-dir "$T/r5" "$T/brief-one.md" 2>&1)
@@ -286,6 +291,9 @@ chmod +x "$T/bin30/kimi"
 out=$(PATH="$T/bin30:$PATH" bash "$KP" --repo "$W" --results-dir "$T/r30" "$T/brief-one.md" 2>&1)
 echo "$out" | grep -q "FAILED(quota)" && ok "401 auth error -> FAILED(quota)" || ko "401 auth error -> FAILED(quota) (got: $(echo "$out" | grep FAILED))"
 echo "$out" | grep -q "agy-delegate\|native subagents" && ok "fallback hint printed on auth error" || ko "fallback hint printed on auth error"
+
+echo "== T31 whole summary.jsonl parseable =="
+jq -s '.' "$W/.kimi-runs/summary.jsonl" >/dev/null 2>&1 && ok "jq -s '.' parses whole summary.jsonl" || ko "jq -s '.' parses whole summary.jsonl"
 
 echo
 echo "RESULT: $pass passed, $fail failed"
