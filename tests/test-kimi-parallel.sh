@@ -242,6 +242,35 @@ out=$(FAKE_KIMI_MODE=ok bash "$KP" --repo "$W" --results-dir "$T/r23" "$T/fm-nos
 rc=$?
 echo "$out" | grep -q "FAILED(schema-file)" && [ $rc -ne 0 ] && ok "missing schema -> FAILED(schema-file)" || ko "missing schema -> FAILED(schema-file) (rc=$rc)"
 
+echo "== T29 commit identity pinned repo-locally (bot-author guard) =="
+mkdir -p "$T/repo29" && git -C "$T/repo29" init -q
+git -C "$T/repo29" -c user.name=seed -c user.email=seed@x commit -q --allow-empty -m init
+FAKE_KIMI_MODE=ok bash "$KP" --repo "$T/repo29" --results-dir "$T/r29" "$T/brief-one.md" >/dev/null 2>&1
+[ "$(git -C "$T/repo29" config --local user.name)" = "hah23255" ] &&
+	[ "$(git -C "$T/repo29" config --local user.email)" = "hah23255@users.noreply.github.com" ] &&
+	ok "absent identity pinned to default" || ko "absent identity pinned to default (got: $(git -C "$T/repo29" config --local user.name)/$(git -C "$T/repo29" config --local user.email))"
+mkdir -p "$T/repo29b" && git -C "$T/repo29b" init -q
+git -C "$T/repo29b" config user.name "Custom Local"
+git -C "$T/repo29b" config user.email "custom@local"
+git -C "$T/repo29b" commit -q --allow-empty -m init
+FAKE_KIMI_MODE=ok bash "$KP" --repo "$T/repo29b" --results-dir "$T/r29b" "$T/brief-one.md" >/dev/null 2>&1
+[ "$(git -C "$T/repo29b" config --local user.name)" = "Custom Local" ] &&
+	ok "existing local identity respected" || ko "existing local identity respected (got: $(git -C "$T/repo29b" config --local user.name))"
+mkdir -p "$T/repo29c" && git -C "$T/repo29c" init -q
+git -C "$T/repo29c" -c user.name=seed -c user.email=seed@x commit -q --allow-empty -m init
+DELEGATE_GIT_NAME="Override Name" DELEGATE_GIT_EMAIL="ov@example.org" \
+	FAKE_KIMI_MODE=ok bash "$KP" --repo "$T/repo29c" --results-dir "$T/r29c" "$T/brief-one.md" >/dev/null 2>&1
+[ "$(git -C "$T/repo29c" config --local user.name)" = "Override Name" ] &&
+	[ "$(git -C "$T/repo29c" config --local user.email)" = "ov@example.org" ] &&
+	ok "DELEGATE_GIT_NAME/EMAIL override honored" || ko "DELEGATE_GIT_NAME/EMAIL override honored"
+mkdir -p "$T/repo29d" && git -C "$T/repo29d" init -q
+git -C "$T/repo29d" config user.name "Antigravity"
+git -C "$T/repo29d" config user.email "antigravity@gemini.google"
+git -C "$T/repo29d" commit -q --allow-empty -m init
+FAKE_KIMI_MODE=ok bash "$KP" --repo "$T/repo29d" --results-dir "$T/r29d" "$T/brief-one.md" >/dev/null 2>&1
+[ "$(git -C "$T/repo29d" config --local user.email)" = "hah23255@users.noreply.github.com" ] &&
+	ok "bot local identity overwritten, not trusted" || ko "bot local identity overwritten, not trusted (got: $(git -C "$T/repo29d" config --local user.email))"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
 exit "$fail"

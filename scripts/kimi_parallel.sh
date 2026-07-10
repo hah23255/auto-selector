@@ -190,6 +190,28 @@ if [[ -z "$BASE_REF" && $IS_GIT -eq 1 ]]; then
 	BASE_REF="$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
 fi
 
+# Pin commit identity repo-locally when absent: delegated agents must never
+# author as a container/global bot identity (agy-in-proot committed as "Agy
+# Developer" 2026-07-10 — GitHub ban risk; GIT_AUTHOR_* env does not cross
+# proot, repo-local config is the mitigation that works, and kimi host-side
+# respects it too). Worktrees share the repo-local config, so one pin covers
+# every agent. A pre-existing local identity is respected UNLESS it is itself
+# a bot identity — the agy CLI leaves "Antigravity <antigravity@gemini.google>"
+# repo-local config behind, which this guard must overwrite, not trust
+# (observed live 2026-07-10). Override via DELEGATE_GIT_NAME/EMAIL.
+if [[ $IS_GIT -eq 1 ]]; then
+	bot_re='antigravity|gemini\.google|@example\.(com|org)|noreply@anthropic|\[bot\]'
+	cur_name="$(git -C "$REPO" config --local user.name 2>/dev/null || true)"
+	cur_email="$(git -C "$REPO" config --local user.email 2>/dev/null || true)"
+	ident="${cur_name,,} ${cur_email,,}"
+	if [[ -z "$cur_name" || "$ident" =~ $bot_re ]]; then
+		git -C "$REPO" config user.name "${DELEGATE_GIT_NAME:-hah23255}"
+	fi
+	if [[ -z "$cur_email" || "$ident" =~ $bot_re ]]; then
+		git -C "$REPO" config user.email "${DELEGATE_GIT_EMAIL:-hah23255@users.noreply.github.com}"
+	fi
+fi
+
 TS="$(date +%Y%m%d-%H%M%S)"
 [[ -n "$RESULTS_DIR" ]] || RESULTS_DIR="$REPO/.kimi-runs/$TS"
 mkdir -p "$RESULTS_DIR"
