@@ -22,6 +22,8 @@
 #   --base <ref>           Branch/ref to base worktrees on (default: current HEAD)
 #   --schema-mode <m>      strict|salvage|warn (default salvage; applies to briefs
 #                          that declare a schema:)
+#   --repair               If a schema-gated agent fails validation, re-ask it ONCE
+#                          with the validator's error report (default off)
 #   --lint                 Require ## Goal / ## Scope / ## Requirements /
 #                          ## Verification sections in every brief (opt-in)
 #   -h, --help             Show this help
@@ -54,6 +56,7 @@ RESULTS_DIR=""
 MAX_PARALLEL=0
 BASE_REF=""
 SCHEMA_MODE="salvage"
+REPAIR=0
 LINT=0
 BRIEFS=()
 
@@ -106,6 +109,10 @@ while [[ $# -gt 0 ]]; do
 	--schema-mode)
 		SCHEMA_MODE="${2:?}"
 		shift 2
+		;;
+	--repair)
+		REPAIR=1
+		shift
 		;;
 	--lint)
 		LINT=1
@@ -237,7 +244,7 @@ echo "  schema mode: $SCHEMA_MODE"
 echo "  results dir: $RESULTS_DIR"
 echo
 
-declare -a NAMES PIDS WORKDIRS BRANCHES SCHEMAS START_EPOCHS
+declare -a NAMES PIDS WORKDIRS BRANCHES SCHEMAS START_EPOCHS PROMPTS BMODELS BSECS
 run_count=0
 failed_prelaunch=0
 
@@ -332,6 +339,9 @@ $(cat "$bschema")"
 	BRANCHES+=("$branch")
 	SCHEMAS+=("$bschema")
 	START_EPOCHS+=("$(date +%s)")
+	PROMPTS+=("$prompt")
+	BMODELS+=("$bmodel")
+	BSECS+=("$bsecs")
 	return 0
 }
 
@@ -370,6 +380,7 @@ log_tail_matches_quota() { # LOGFILE -> 0 if quota/auth failure text present
 failed=0
 quota_seen=0
 partial=0
+repaired=0
 mkdir -p "$REPO/.kimi-runs"
 for i in "${!PIDS[@]}"; do
 	if wait "${PIDS[$i]}"; then
@@ -381,6 +392,41 @@ for i in "${!PIDS[@]}"; do
 				"$RESULTS_DIR/${NAMES[$i]}.log" "$schema" \
 				--out "$RESULTS_DIR/${NAMES[$i]}.partial.json"
 			vrc=$?
+
+			if [[ $vrc -ne 0 && $REPAIR -eq 1 ]]; then
+				rep_log="$RESULTS_DIR/${NAMES[$i]}.repair.log"
+				if [[ -f "$RESULTS_DIR/${NAMES[$i]}.partial.json" ]]; then
+					rep_err="$(cat "$RESULTS_DIR/${NAMES[$i]}.partial.json")"
+				else
+					rep_err="No valid JSON object could be extracted."
+				fi
+
+				rep_prompt="${PROMPTS[$i]}
+
+Your previous reply failed JSON schema validation:
+$rep_err
+Reply with ONLY one JSON object that satisfies the schema. No prose."
+
+				rep_margs=()
+				[[ -n "${BMODELS[$i]}" ]] && rep_margs=(-m "${BMODELS[$i]}")
+
+				echo "  [${NAMES[$i]}] schema validation failed (exit $vrc), attempting repair..."
+
+				(
+					cd "${WORKDIRS[$i]}" || exit 98
+					timeout -k 10 "${BSECS[$i]}" kimi "${PRINT_ARGS[@]}" "${rep_margs[@]}" "${OUTPUT_FMT_ARGS[@]}" -p "$rep_prompt"
+				) >"$rep_log" 2>&1
+
+				# re-validate against repair output
+				python3 "$SCRIPT_DIR/validate_output.py" \
+					"$rep_log" "$schema" \
+					--out "$RESULTS_DIR/${NAMES[$i]}.partial.json"
+				vrc=$?
+				if [[ $vrc -eq 0 ]]; then
+					repaired=$((repaired + 1))
+				fi
+			fi
+
 			case "$SCHEMA_MODE:$vrc" in
 			*:0) status="OK" ;;
 			salvage:2)
@@ -429,7 +475,7 @@ for i in "${!PIDS[@]}"; do
 		--arg status "$status" \
 		--argjson rc "$rc" \
 		--argjson secs "$secs" \
-		'{ts: $ts, run: $run, name: $name, status: $status, rc: $rc, secs: $secs}' >> "$REPO/.kimi-runs/summary.jsonl" 2>/dev/null || true
+		'{ts: $ts, run: $run, name: $name, status: $status, rc: $rc, secs: $secs}' >>"$REPO/.kimi-runs/summary.jsonl" 2>/dev/null || true
 done
 
 if [[ $quota_seen -eq 1 ]]; then
@@ -444,7 +490,11 @@ if [[ $USE_WORKTREE -eq 1 ]]; then
 fi
 # PARTIAL counts as succeeded by design (salvaged output is reviewable), but is
 # surfaced here so a salvaged run is never mistaken for a fully clean one.
-echo "Done. $((run_count - failed))/$((run_count + failed_prelaunch)) agent(s) succeeded ($partial partial)."
+if [[ $REPAIR -eq 1 ]]; then
+	echo "Done. $((run_count - failed))/$((run_count + failed_prelaunch)) agent(s) succeeded ($partial partial) ($repaired repaired)."
+else
+	echo "Done. $((run_count - failed))/$((run_count + failed_prelaunch)) agent(s) succeeded ($partial partial)."
+fi
 echo "summary: $REPO/.kimi-runs/summary.jsonl"
 # Exit = failure count, capped: 256 failures would wrap to exit 0.
 total_failed=$((failed + failed_prelaunch))

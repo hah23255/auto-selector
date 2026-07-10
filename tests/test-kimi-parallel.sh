@@ -4,7 +4,7 @@
 # Usage: test-kimi-parallel.sh /path/to/kimi_parallel.sh
 KP="${1:?usage: test-kimi-parallel.sh <kimi_parallel.sh>}"
 [[ "$KP" == /* ]] || KP="$(cd "$(dirname "$KP")" && pwd)/$(basename "$KP")"
-T="$(mktemp -d)"
+export T="$(mktemp -d)" # exported: repair shim modes track invocations via $T/repair_count
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
 
@@ -143,10 +143,25 @@ echo "$out" | grep -q "FAILED(exit)" && ok "line-429 text stays FAILED(exit)" ||
 cat >"$T/bin/kimi" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
 [ "${1:-}" = "--help" ] && { printf '%s\n' "${FAKE_HELP:-usage: kimi -p <prompt> --output-format <fmt>}"; exit 0; }
+[ "${1:-}" = "--version" ] && { echo "1.0.0"; exit 0; }
 case "${FAKE_KIMI_MODE:-ok}" in
 ok) echo "task done"; exit 0 ;;
 args) printf 'ARGV>>>%s<<<\n' "$@"; exit 0 ;;
 jsonpart) echo 'Here is the result:'; echo '{"a": 1}'; exit 0 ;;
+repair_ok)
+	c=$(cat "$T/repair_count" 2>/dev/null || echo 0)
+	c=$((c + 1))
+	echo $c > "$T/repair_count"
+	if [ "$c" -eq 1 ]; then echo '{"a": 1}'; else echo '{"a": 1, "b": "ok"}'; fi
+	exit 0
+	;;
+repair_fail)
+	c=$(cat "$T/repair_count" 2>/dev/null || echo 0)
+	c=$((c + 1))
+	echo $c > "$T/repair_count"
+	if [ "$c" -eq 1 ]; then echo '{"a": 1}'; else echo '{"a": 2}'; fi
+	exit 0
+	;;
 hang) sleep 300; exit 0 ;;
 stubborn) trap '' TERM; sleep 300; exit 0 ;;
 quota) echo "Error: insufficient_quota - your quota is exhausted" >&2; exit 1 ;;
@@ -294,6 +309,27 @@ echo "$out" | grep -q "agy-delegate\|native subagents" && ok "fallback hint prin
 
 echo "== T31 whole summary.jsonl parseable =="
 jq -s '.' "$W/.kimi-runs/summary.jsonl" >/dev/null 2>&1 && ok "jq -s '.' parses whole summary.jsonl" || ko "jq -s '.' parses whole summary.jsonl"
+
+echo "== T32 --repair flag: success =="
+rm -f "$T/repair_count"
+out=$(FAKE_KIMI_MODE=repair_ok bash "$KP" --repo "$W" --results-dir "$T/r32" --schema-mode strict --repair "$T/fm-schema.md" 2>&1)
+rc=$?
+echo "$out" | grep -q -E "^  OK|  OK " && [ $rc -eq 0 ] && ok "--repair success -> OK" || ko "--repair success -> OK (rc=$rc, out: $(echo "$out" | grep -E 'OK|FAILED'))"
+echo "$out" | grep -q "(1 repaired)" && ok "footer contains (1 repaired)" || ko "footer contains (1 repaired)"
+
+echo "== T33 --repair flag: fail =="
+rm -f "$T/repair_count"
+out=$(FAKE_KIMI_MODE=repair_fail bash "$KP" --repo "$W" --results-dir "$T/r33" --schema-mode strict --repair "$T/fm-schema.md" 2>&1)
+rc=$?
+echo "$out" | grep -q "FAILED(schema)" && [ $rc -ne 0 ] && ok "--repair fail stays FAILED" || ko "--repair fail stays FAILED"
+echo "$out" | grep -q "(0 repaired)" && ok "footer contains (0 repaired)" || ko "footer contains (0 repaired)"
+
+echo "== T34 without --repair, behaves normally =="
+rm -f "$T/repair_count"
+out=$(FAKE_KIMI_MODE=repair_ok bash "$KP" --repo "$W" --results-dir "$T/r34" --schema-mode strict "$T/fm-schema.md" 2>&1)
+rc=$?
+echo "$out" | grep -q "FAILED(schema)" && [ $rc -ne 0 ] && ok "without --repair -> FAILED" || ko "without --repair -> FAILED"
+echo "$out" | grep -q "(repaired)" && ko "without --repair shouldn't show repaired in footer" || ok "without --repair shouldn't show repaired in footer"
 
 echo
 echo "RESULT: $pass passed, $fail failed"
