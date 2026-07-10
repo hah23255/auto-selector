@@ -38,16 +38,17 @@ Don't re-run these every invocation — only when `kimi --version` or a run actu
 
 ## How Kimi is invoked (the contract you depend on)
 
-Kimi runs **non-interactively** with `--print -p`. This is the whole basis of delegation:
+Kimi runs **non-interactively** in prompt mode — but the flag contract is
+**VERSION-DEPENDENT** (drift confirmed live 2026-07-10), so **always launch through
+`scripts/kimi_parallel.sh`**, which auto-detects the installed contract by sniffing
+`kimi --help` (static, zero quota):
 
-```bash
-kimi --print -p "FULL TASK BRIEF HERE"
-```
-
-**`--print` is required** (verified on kimi 1.41.0): `-p` alone only supplies the prompt
-text and still launches the interactive shell UI, whose keyboard listener crashes with
-`termios.error: (25, 'Inappropriate ioctl for device')` and hangs the agent when run
-without a TTY (background jobs, CI, agent harnesses).
+- **kimi 1.41.x**: `kimi --print -p "…"` required. `-p` alone launches the interactive
+  shell UI, whose keyboard listener crashes with
+  `termios.error: (25, 'Inappropriate ioctl for device')` and hangs non-TTY.
+- **kimi 0.23.x** (currently installed): `--print` is REJECTED (`unknown option
+  '--print'`); bare `kimi -p "…"` IS non-interactive prompt mode, verified non-TTY-safe.
+  Output carries a leading `• ` bullet and a trailing `To resume this session: …` line.
 
 Key facts about `--print` mode (these shape how you delegate):
 - It streams the assistant's output to **stdout**; thinking/tool-progress goes to **stderr**.
@@ -207,3 +208,37 @@ Writes `/tmp/kimi-briefs/migration.md` and `/tmp/kimi-briefs/endpoints.md`, each
 self-contained, each stating exactly which directory it owns and not to touch the other.
 Launches: `bash scripts/kimi_parallel.sh --repo ~/proj /tmp/kimi-briefs/*.md`. On completion,
 reviews both branches, runs the test suite, merges, and reports back.
+
+## Commit identity (bot-author guard, 2026-07-10)
+
+The launcher pins repo-local `user.name`/`user.email` on `--repo` before any
+agent runs: pinned when absent, and OVERWRITTEN when the existing local
+identity is a known bot (`antigravity|gemini.google|@example.(com|org)|
+noreply@anthropic|[bot]` — the agy CLI leaves `Antigravity
+<antigravity@gemini.google>` repo-local config behind). Worktrees share
+repo-local config, so one pin covers every agent. GIT_AUTHOR_* env does NOT
+cross proot; repo-local config is the mechanism that works. Defaults
+hah23255 / hah23255@users.noreply.github.com; override via
+`DELEGATE_GIT_NAME` / `DELEGATE_GIT_EMAIL`. Still review authorship on every
+agent branch before merging.
+
+## v3.3 additions (2026-07-10)
+
+- **Run summary**: every run appends one JSONL record per agent to
+  `<repo>/.kimi-runs/summary.jsonl` (ts, run stamp, name, status, rc, secs) —
+  query with jq across runs. Footer prints the path.
+- **`--repair`**: schema-gated agents that fail validation are re-asked ONCE
+  with the validator's report (same model/timeout wrapper); footer shows
+  `(N repaired)`. Off by default.
+- **`--clean-output`**: writes clean agent text to `<name>.out` — jq-extracted
+  from stream-json when the CLI supports it (sniffed off the same timeout-
+  wrapped `--help` probe), else a text scrub (framing, `• ` bullets,
+  resume-hint trailer). Schema validation prefers the clean extraction.
+- **Auth errors classify as quota-family**: `provider.auth_error` / invalid or
+  expired API key now yields FAILED(quota) + the agy-fallback hint (an expired
+  key looked like FAILED(exit) before).
+- **`scripts/delegate.sh` front door**: `delegate.sh [--engine auto|kimi|agy]
+  [--failover] <launcher args...>` — auto picks kimi when the CLI is present,
+  else agy; `--failover` reruns the same argument list on agy when kimi output
+  shows FAILED(quota) (one hop). Launcher paths overridable via
+  `DELEGATE_KIMI_LAUNCHER` / `DELEGATE_AGY_LAUNCHER`.
