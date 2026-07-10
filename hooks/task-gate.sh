@@ -50,7 +50,7 @@ arch="" directive=""
 case "$p" in
 *" delegate "* | *" delegated "* | *" delegating "* | *" hand off "* | *" hand this "* | *" делегира"* | *" пусни на "* | *" let kimi "* | *" to kimi "* | *" to agy "* | *" fan out "*)
 	arch="delegate"
-	directive="TASK-GATE [delegate]: use the kimi-delegate skill (agy-delegate if Kimi quota is out); invoke kimi ONLY as kimi --print -p (non-TTY). Kimi tiers: -highspeed alias for mechanical briefs, kimi-for-coding for reasoning-heavy."
+	directive="TASK-GATE [delegate]: use the kimi-delegate skill (agy-delegate if Kimi quota is out); ALWAYS launch via kimi_parallel.sh — the kimi CLI flag contract is version-dependent and the launcher auto-detects it. Kimi tiers: -highspeed alias for mechanical briefs, kimi-for-coding for reasoning-heavy."
 	;;
 *" remember "* | *" memorize "* | *" запомни "* | *" to memory "*)
 	arch="memory"
@@ -63,6 +63,12 @@ case "$p" in
 *" review "* | *" reviews "* | *" reviewed "* | *" reviewing "* | *" провери кода "* | *" check the pr "* | *" pull request "*)
 	arch="review"
 	directive="TASK-GATE [review]: invoke code-review (or superpowers:requesting-code-review for own work); report findings, do not auto-fix unless asked."
+	;;
+*" test whether "* | *" test if "* | *" test that "*)
+	# Diagnostic "probe a live condition" phrasing — the TDD mandate would
+	# mislead here (adversarially confirmed). Deliberately silent.
+	printf '{"ts":"%s","sid":"%s","event":"pass"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SID" >>"$CACHE_DIR/skill-telemetry.jsonl" 2>/dev/null
+	exit 0
 	;;
 *" test "* | *" tests "* | *" testing "* | *" coverage "* | *" tdd "* | *" тест"*)
 	arch="test"

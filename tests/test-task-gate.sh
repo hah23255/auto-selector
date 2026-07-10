@@ -173,6 +173,9 @@ fix:*"EFFORT: user signalled LOW"*:"")
 	;;
 esac
 
+check "test whether X -> silent (diagnostic)" SILENT "test whether the deploy pipeline works"
+check "plain test verb still gates" test "test the login flow thoroughly please"
+
 echo "== phase 2: precedence guards =="
 check "failing tests -> fix wins over test" fix "the tests are failing again"
 check "fix the commit -> fix wins" fix "fix the broken commit message"

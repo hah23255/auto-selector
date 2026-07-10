@@ -20,6 +20,7 @@ ko() {
 mkdir -p "$T/bin"
 cat >"$T/bin/kimi" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
+[ "${1:-}" = "--help" ] && { printf '%s\n' "${FAKE_HELP:-usage: kimi -p <prompt> --output-format <fmt>}"; exit 0; }
 case "${FAKE_KIMI_MODE:-ok}" in
 ok)    echo "task done"; exit 0 ;;
 hang)  sleep 300; exit 0 ;;
@@ -136,6 +137,7 @@ echo "$out" | grep -q "FAILED(exit)" && ok "line-429 text stays FAILED(exit)" ||
 # ---- Phase 3: frontmatter, schema salvage, skills ----
 cat >"$T/bin/kimi" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
+[ "${1:-}" = "--help" ] && { printf '%s\n' "${FAKE_HELP:-usage: kimi -p <prompt> --output-format <fmt>}"; exit 0; }
 case "${FAKE_KIMI_MODE:-ok}" in
 ok) echo "task done"; exit 0 ;;
 args) printf 'ARGV>>>%s<<<\n' "$@"; exit 0 ;;
@@ -148,6 +150,13 @@ err429) echo "assertion failed at line 429: unexpected token" >&2; exit 3 ;;
 esac
 EOF
 chmod +x "$T/bin/kimi"
+
+echo "== T27 version-adaptive --print detection =="
+printf 'v27 body\n' >"$T/v27.md"
+FAKE_KIMI_MODE=args bash "$KP" --repo "$W" --results-dir "$T/r27a" "$T/v27.md" >/dev/null 2>&1
+grep -q 'ARGV>>>--print<<<' "$T/r27a/v27.log" 2>/dev/null && ko "0.23-style help: --print omitted" || ok "0.23-style help: --print omitted"
+FAKE_HELP='--print   run non-interactively' FAKE_KIMI_MODE=args bash "$KP" --repo "$W" --results-dir "$T/r27b" "$T/v27.md" >/dev/null 2>&1
+grep -q 'ARGV>>>--print<<<' "$T/r27b/v27.log" 2>/dev/null && ok "1.41-style help: --print passed" || ko "1.41-style help: --print passed"
 
 echo "== T15 frontmatter model + body stripping =="
 printf -- '---\nmodel: custom/model-x\n---\nthe brief body only\n' >"$T/fm-model.md"
@@ -174,6 +183,7 @@ out=$(FAKE_KIMI_MODE=jsonpart bash "$KP" --repo "$W" --results-dir "$T/r18" "$T/
 rc=$?
 echo "$out" | grep -q "PARTIAL(schema)" && [ $rc -eq 0 ] && ok "salvage -> PARTIAL(schema), rc=0" || ko "salvage -> PARTIAL(schema) (rc=$rc, got: $(echo "$out" | grep -E 'PARTIAL|FAILED'))"
 jq -e '._missing == ["b"] and .a == 1' "$T/r18/fm-schema.partial.json" >/dev/null 2>&1 && ok "partial.json has _missing + salvaged field" || ko "partial.json has _missing + salvaged field"
+echo "$out" | grep -q "(1 partial)" && ok "summary surfaces partial count" || ko "summary surfaces partial count"
 
 echo "== T19 schema strict -> FAILED =="
 out=$(FAKE_KIMI_MODE=jsonpart bash "$KP" --repo "$W" --results-dir "$T/r19" --schema-mode strict "$T/fm-schema.md" 2>&1)
@@ -218,6 +228,13 @@ if bash "$KP" --repo "$W" --results-dir "$T/r26" --json "$T/fm-schema.md" >/dev/
 else
 	ok "--json + schema rejected upfront"
 fi
+
+echo "== T28 never-closed frontmatter is body, not overrides =="
+printf -- '---\ntimeout: 5x\nthe dashes above were a horizontal rule, not frontmatter\n' >"$T/unclosed.md"
+out=$(FAKE_KIMI_MODE=args bash "$KP" --repo "$W" --results-dir "$T/r28" "$T/unclosed.md" 2>&1)
+rc=$?
+[ $rc -eq 0 ] && ok "unclosed frontmatter: bogus timeout NOT honored (rc=0)" || ko "unclosed frontmatter: bogus timeout NOT honored (rc=$rc: $(echo "$out" | grep FAILED))"
+grep -q "timeout: 5x" "$T/r28/unclosed.log" 2>/dev/null && ok "unclosed frontmatter kept as body" || ko "unclosed frontmatter kept as body"
 
 echo "== T23 missing schema file fails prelaunch =="
 printf -- '---\nschema: nope.json\n---\nx y z\n' >"$T/fm-noschema.md"

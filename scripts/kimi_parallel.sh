@@ -121,6 +121,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 command -v kimi >/dev/null 2>&1 || die "kimi CLI not found on PATH. Install from https://github.com/MoonshotAI/kimi-code and run 'kimi login'."
+
+# kimi CLI contract drift (verified live 2026-07-10): 1.41.x needs --print for
+# non-interactive prompt mode; 0.23.x REJECTS --print (bare -p IS prompt mode,
+# non-TTY-safe). Sniff the static help once — costs no quota. Timeout-wrapped:
+# NO unbounded kimi call anywhere in this script, the sniff included.
+PRINT_ARGS=()
+case "$(timeout -k 2 5 kimi --help 2>/dev/null)" in *--print*) PRINT_ARGS=(--print) ;; esac
 [[ ${#BRIEFS[@]} -gt 0 ]] || die "no brief files given. See --help."
 [[ -d "$REPO" ]] || die "repo path not found: $REPO"
 REPO="$(cd "$REPO" && pwd)"
@@ -290,7 +297,7 @@ $(cat "$bschema")"
 		echo "=== started: $(date) ==="
 		echo
 		cd "$workdir" || exit 98
-		timeout -k 10 "$bsecs" kimi --print "${margs[@]}" "${OUTPUT_FMT_ARGS[@]}" -p "$prompt"
+		timeout -k 10 "$bsecs" kimi "${PRINT_ARGS[@]}" "${margs[@]}" "${OUTPUT_FMT_ARGS[@]}" -p "$prompt"
 		rc=$?
 		echo
 		echo "=== finished: $(date) (exit $rc) ==="
@@ -339,6 +346,7 @@ log_tail_matches_quota() { # LOGFILE -> 0 if quota/auth failure text present
 
 failed=0
 quota_seen=0
+partial=0
 for i in "${!PIDS[@]}"; do
 	if wait "${PIDS[$i]}"; then
 		status="OK"
@@ -350,7 +358,10 @@ for i in "${!PIDS[@]}"; do
 			vrc=$?
 			case "$SCHEMA_MODE:$vrc" in
 			*:0) status="OK" ;;
-			salvage:2) status="PARTIAL(schema)" ;;
+			salvage:2)
+				status="PARTIAL(schema)"
+				partial=$((partial + 1))
+				;;
 			*)
 				status="FAILED(schema)"
 				failed=$((failed + 1))
@@ -395,5 +406,10 @@ if [[ $USE_WORKTREE -eq 1 ]]; then
 	echo "Merge a branch:    git -C \"$REPO\" merge kimi/<name>"
 	echo "Clean up worktree: git -C \"$REPO\" worktree remove \"$RESULTS_DIR/worktrees/<name>\""
 fi
-echo "Done. $((run_count - failed))/$((run_count + failed_prelaunch)) agent(s) succeeded."
-exit $((failed + failed_prelaunch))
+# PARTIAL counts as succeeded by design (salvaged output is reviewable), but is
+# surfaced here so a salvaged run is never mistaken for a fully clean one.
+echo "Done. $((run_count - failed))/$((run_count + failed_prelaunch)) agent(s) succeeded ($partial partial)."
+# Exit = failure count, capped: 256 failures would wrap to exit 0.
+total_failed=$((failed + failed_prelaunch))
+[[ $total_failed -gt 254 ]] && total_failed=254
+exit $total_failed

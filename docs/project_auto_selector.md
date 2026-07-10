@@ -54,10 +54,17 @@ punctuation incl. typographic apostrophe. Suites: 52+20 checks green, latency 12
 Bash lessons: ${var%.*} glob crosses '/'; force 10# on user-supplied arithmetic.
 Phase 2+3 SHIPPED 2026-07-10 evening (user-ordered): task-gate v5 (11 archetypes — added
 test/commit/bundle/memory with precedence guards; explicit-intent effort overlay EN+BG;
-kimi/haiku tier hints; 60-char normalized snippet in gate telemetry; 68/68) and
-kimi-delegate v3 (per-brief frontmatter model:/timeout:/schema:/skills:, salvage PARTIAL
-verdicts via vendored validate_output.py, --schema-mode strict|salvage|warn, --lint opt-in,
-prelaunch-failure accounting, timeout-wrapped version probe — an unwrapped kimi call hung
-the suite: NO unbounded kimi calls ever; 33/33). brief_lib.sh vendored with base-10 fixes;
-UPSTREAM agy_lib.sh still has the octal duration bug — fix agy-delegate later.
-Related: [[project-hook-modernisation]], [[reference-kimi-delegate]].
+kimi/haiku tier hints; 60-char normalized snippet in gate telemetry) and kimi-delegate v3
+(per-brief frontmatter model:/timeout:/schema:/skills:, salvage PARTIAL verdicts via
+vendored validate_output.py, --schema-mode strict|salvage|warn, --lint opt-in,
+prelaunch-failure accounting; NO unbounded kimi calls ever — an unwrapped version probe
+hung the suite). v6 same night after adversarial review (spend limit killed 45/66 agents
+mid-workflow): precedence memory>commit + bundle>config, bounded think-hard,
+[[:cntrl:]]-safe telemetry, copy-alias dropped, archetype+effort dedup (.eff state file),
+CRLF-safe brief_lib, --json+schema and no-python3 rejected upfront. Suites 73/73 + 37/37.
+Private repo github.com/hah23255/auto-selector: main = 6a0b2d2, all commits authored
+hah23255 <hah23255@users.noreply.github.com> (GH007 blocks the real email — always use
+the noreply identity for this account). The delegated agy agent's bot-authored commit
+was replaced via user-run force-with-lease 2026-07-10; conduct lessons in
+[[project-agy-delegate]].
+Related: [[project-hook-modernisation]], [[reference-kimi-delegate]], [[project-agy-delegate]].

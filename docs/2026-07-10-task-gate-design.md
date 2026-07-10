@@ -189,6 +189,50 @@ Validation Phase 2/3: gate suite 68/68 (16 new: archetypes, precedence, effort o
 snippet); kimi suite 33/33 (13 new: frontmatter/model/timeout/schema salvage-strict-warn/
 skills/lint/schema-file). SKILL.md updated (frontmatter grammar, statuses, --lint).
 
+## v6 — post-adversarial-review fixes (2026-07-10 late evening)
+
+The Phase 2/3 verification workflow ran into the MONTHLY SPEND LIMIT (45/66 agents died;
+no more subagent/workflow capacity — later fixes verified inline). 5 findings confirmed
+with full skeptic panels before cutoff, all fixed:
+- memory arm moved above commit ("commit X to memory" got git-workflow directives);
+  bundle arm moved above config ("sync the hooks bundle" got update-config); precedence
+  now delegate > memory > fix > review > test > commit > bundle > config > deploy >
+  research > build.
+- " think hard " bounded (matched "think hardware"); copy-family dropped from bundle
+  aliases (everyday "copy this function" overreach); control chars stripped via
+  [[:cntrl:]] (raw ESC/C0 in the snippet field made whole-file jq scans abort — the FP
+  auditing feature was poisoning its own dataset).
+- Dedup now keys archetype+effort (second state file .eff; a new explicit LOW/HIGH always
+  re-injects; log-rotate + state-reinject updated for the extra file).
+- Adopted from the delegated agy agent (validated 68/68 before adoption): bash-native
+  ${prompt,,} lowercasing + alternation-form Unicode gsub — survives C-locale/mawk hosts
+  where gawk bracket multibyte classes and tolower don't fold Cyrillic.
+Unverified-due-to-quota candidates (triaged inline): CRLF briefs broke fm_get/brief_body/
+lint_brief (FIXED: \r stripped in all three + value trailing-trim + surrounding-quote
+strip); --json+schema structurally incompatible (FIXED: rejected upfront); missing python3
+misreported as FAILED(schema) (FIXED: preflight); warn-mode message on unextractable JSON
+pointed to nonexistent file (FIXED). Deferred with rationale: mixed-intent precedence
+("commit the fix and push" → fix) and "test whether X" diagnostic phrasing — gray-zone,
+telemetry arbitrates; exit-code-256 wraparound (matches agy, callers use 0/nonzero);
+PARTIAL counts as success BY DESIGN. Suites after v6: gate 73/73, kimi 37/37.
+
+agy-delegate analysis findings (2026-07-10, probes with stub AGY_BIN, zero credits):
+repo v0.1.3, stub tests 62/62, installed skill = symlink (no drift). Defects found:
+(1) frontmatter timeout with leading zero (09m) silently collapses the outer wall-clock
+to 60s (octal arithmetic error -> empty secs -> $((""+60))) while agy's native
+--print-timeout still gets 9m — backstop kills legitimate work early; (2) brief
+x.dir/task names the agent "x" not "task" (${brief%.*} glob crosses '/'); (3) no -k on
+the outer timeout: a TERM-immune agent overruns the kill point until it exits on its own
+(measured 91s vs 62s limit; unbounded for a truly stuck process); (4) meta.txt
+"$AGY_BIN" --version is unwrapped (same hang class fixed in kimi_parallel); (5) same
+CRLF susceptibility as pre-fix brief_lib (shared awk helpers); (6) quota regex includes
+bare "credit". CONDUCT findings from the live README delegation: the agy agent violated
+a one-file scope (edited hooks/task-gate.sh — a genuinely valuable locale-portability
+patch, but unauthorized), committed DIRECTLY TO MAIN as "Agy Developer <agy@example.com>"
+(bot identity), and PUSHED TO ORIGIN using inherited credentials — delegation currently
+has no identity/network isolation. Doctrine reaffirmed: review the diff, never the
+report; consider read-only git credentials or GIT_AUTHOR_* pinning in the launchers.
+
 Validation v4: suites extended to 52 (gate) + 20 (kimi) checks — 17 new gate cases (BG
 morphology incl. capitalized Cyrillic, compounds, derived forms, Unicode punctuation,
 450-char Cyrillic truncation) and 6 new kimi cases (09m octal, 0-timeout reject, dotted-dir
