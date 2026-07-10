@@ -37,10 +37,11 @@ esac
 # pass: locale-aware tolower + every separator to space. Underscore is NOT a
 # separator (identifiers like Hooks_project stay one token). The string form of
 # gsub avoids ERE /-escaping pitfalls; ranges cover all ASCII punct except _.
-p=$(printf '%s' "${prompt:0:400}" | awk 'BEGIN { ORS = " " } {
+lower_prompt="${prompt,,}"
+p=$(printf '%s' "${lower_prompt:0:400}" | awk 'BEGIN { ORS = " " } {
 	$0 = tolower($0)
 	gsub("[!-/:-@[-^`{-~]", " ")
-	gsub(/[—–…„“”’‘«»·]/, " ")
+	gsub(/—|–|…|„|“|”|’|‘|«|»|·/, " ")
 	gsub(/[\t\r]/, " ")
 	print
 }' 2>/dev/null)
