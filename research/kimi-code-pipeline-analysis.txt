@@ -1,0 +1,172 @@
+I'll conduct a code-level analysis of Kimi CLI's prompt-analysis and skill-selection pipeline. Let me start by locating and inspecting the implementation.
+Now I'll use Kimi to analyze the codebase structures and pipeline based on what I've found:
+Let me take a different approach and analyze the code artifacts directly without Kimi:
+Now let me compile the findings based on the code analysis I've conducted:
+TL;DR: Kimi CLI's prompt-to-skill pipeline uses a four-layered LLM-driven architecture: plugin manifests → system prompt injection → LLM decision-making with rule enforcement → hook+telemetry feedback. Five concrete borrowable mechanisms: system-prompt-as-registry, semantic tool-mapping, rule-based enforcement, multi-step selection, and telemetry-driven feedback.
+
+## Draft of Thought / Analysis Method
+
+1. **Artifact exploration** — located Kimi binary wrapper, config.toml, plugin manifests (kimi.plugin.json, .kimi-plugin/plugin.json), skill definitions (SKILL.md), session logs, telemetry.
+2. **Pipeline mapping** — traced SessionStart hook → plugin loading → system prompt injection (26KB base + skillInstructions + skill descriptions) → LLM decision → tool execution → telemetry capture.
+3. **Tool-select feature** — found config flag [experimental] tool-select=true; observed multi-step turSteps (0.1...0.8) and toolCount=26 in logs; inferred LLM-side ranking (algorithm opaque in compiled binary).
+4. **Skill selection** — identified that Kimi does NOT use keyword matching or embeddings; instead, embeds skill descriptions in system prompt and relies on LLM + Superpowers' using-superpowers skill to enforce "check all applicable skills before responding" rule with red-flags table.
+5. **Feedback loop** — telemetry captures tool_call events (outcome, duration_ms); tool outcomes fed back to LLM; max_retries_per_step=3 for failed tools; session state tracks all tool calls.
+
+---
+
+## REPORT: Kimi CLI Prompt-to-Skill Selection Pipeline
+
+**Location:** `/data/data/com.termux/files/home/.kimi-code/bin/kimi` (ELF 64-bit ARM, compiled, not stripped)
+
+### ENTRY POINTS / LAUNCHER CHAIN
+
+- **CLI wrapper:** `/data/data/com.termux/files/home/.local/bin/kimi` (bash script, invokes glibc-runner)
+- **Core binary:** `/data/data/com.termux/files/home/.kimi-code/bin/kimi` (ELF 64-bit)
+- **Config:** `/data/data/com.termux/files/home/.kimi-code/config.toml`
+  - `merge_all_available_skills = true` (eager load all plugins' skills)
+  - `[experimental] tool-select = true` (active feature flag)
+  - `reserved_context_size = 50000` (token budget for compaction)
+  - `max_retries_per_step = 3` (tool retry budget)
+  - `max_running_tasks = 4` (parallel subagent limit)
+
+### PIPELINE WITH FUNCTION NAMES & CALL FLOW
+
+**Stage 1: Initialization (SessionStart hook)**
+- Binary loads plugin registry: `/data/data/com.termux/files/home/.kimi-code/plugins/installed.json`
+- Reads plugin manifest: `.kimi-plugin/plugin.json` (or older `kimi.plugin.json` for MCP plugins)
+- Extracts fields:
+  - `skills: "./skills/"` → directory containing SKILL.md files
+  - `skillInstructions: <markdown>` → tool-mapping instructions for LLM
+  - `sessionStart.skill: "using-superpowers"` → bootstrap skill name
+
+**Stage 2: System Prompt Construction**
+- Base prompt: 26698 chars (observed)
+- ++ Kimi tool reference (Read, Write, Bash, Grep, Glob, FetchURL, WebSearch, etc.)
+- ++ All plugin `skillInstructions` (markdown prose defining tool mappings)
+- ++ All skill descriptions from SKILL.md:
+  ```
+  ---
+  name: brainstorming
+  description: "Use this before creative work..."
+  ---
+  ```
+- Result: ~50–60KB system context
+
+**Stage 3: Prompt Analysis & Skill Classification (LLM-side)**
+1. User submits prompt via UserPromptSubmit hook
+2. Binary constructs LLM request: system prompt (50–60KB) + conversation history + user message
+3. LLM reads skill descriptions and applies Superpowers' **"using-superpowers" enforcement rule:**
+   ```
+   If you think there is even a 1% chance a skill might apply, YOU MUST invoke it.
+   IF A SKILL APPLIES, YOU DO NOT HAVE A CHOICE.
+   ```
+   Red-flags table prevents rationalization:
+   - Thought: "This is simple" → Reality: "Questions are tasks. Check skills."
+   - Thought: "I need context first" → Reality: "Skill check BEFORE context gathering."
+
+**No keyword matching or embeddings detected.** Classification is fully LLM-driven via prompt text.
+
+**Stage 4: Tool Selection (tool-select experimental feature)**
+- Config flag: `[experimental] tool-select = true`
+- Observable behavior:
+  - `toolCount=26` reported to model
+  - Multi-step execution: `turSteps 0.1, 0.2, ... 0.8` (8 substeps per turn)
+  - Tools available: Bash, Read, Write, Edit, Grep, Glob, FetchURL, WebSearch, AskUserQuestion, TodoList, Agent, Skill, + MCP tools (26+)
+
+**Algorithm (inferred; binary internals opaque):**
+- LLM receives all tools in context
+- Per substep, LLM selects subset of tools
+- Binary orchestrates: `call_llm → parse_tools → execute_tools → gather_outputs → feed_back_to_llm → repeat`
+- Possible ranking strategy: logits-based scoring, schema constraints, or learned weights (not visible)
+
+**Stage 5: Tool Execution & Feedback**
+- PreToolUse hook fires before each tool call
+- Tool executes (e.g., Bash, WebSearch)
+- Outcome captured: `{ tool_name, outcome: "success" | "failure", duration_ms }`
+- Tool output fed back into next turn's context
+- If outcome="failure", retry up to 3 times (max_retries_per_step=3)
+
+**Stage 6: State & Compaction**
+- PreCompact hook: if context approaching 50KB budget, compress message history
+- Session state tracked: `/session-dir/state.json`
+- Wire protocol: `/session-dir/agents/main/wire.jsonl` (all turns with timing)
+
+### SELECTION ALGORITHM (tool-select)
+
+**Discovery mechanism:** None visible (no separate selection model)
+
+**Ranking & filtering:**
+1. **Skill ranking:** Superpowers defines priority order (process skills first, then implementation):
+   - "Let's build X" → brainstorming skill FIRST
+   - "Fix bug" → systematic-debugging skill FIRST
+   - *Enforced via LLM prompt rules, not algorithmic*
+
+2. **Tool filtering:**
+   - Token budget: `reserved_context_size = 50000`
+   - Mechanism: message compaction, not tool culling
+   - Tool selection per substep: LLM decides relevance
+
+3. **Possible algorithm (inferred):**
+   - Schema-based: tools filtered by parameter match to prompt intent
+   - Logits-based: model assigns scores to tools, samples top-K
+   - Learned weights: per-tool preference learned from telemetry
+   - *(Binary implementation not inspectable)*
+
+### EVALUATION-FEEDBACK LOOP
+
+**Telemetry system:** `/data/data/com.termux/files/home/.kimi-code/telemetry/` (JSONL format)
+
+**Events captured:**
+- `session_started`: { yolo, plan, afk, ui_mode }
+- `turn_started`: { mode, provider_type }
+- `tool_call`: { tool_name, outcome, duration_ms, dup_type }
+  - Outcome: "success" | "failure"
+  - Duration: 2–7 seconds typical for WebSearch/Bash
+- `permission_policy_decision`: { tool_name, decision: "approve" | "deny" }
+- `mcp_failed`: MCP server unavailability
+- `system_metrics`: memory, CPU, load average
+
+**Feedback into LLM:**
+- Tool outcomes (success/failure) + tool output (stdout/stderr) fed back in next turn
+- LLM reads outcome, decides retry or pivot
+- Session state tracks all tool history for introspection
+
+**No explicit skill usage tracking** visible (only tool calls logged).
+
+### LATENCIES & COSTS
+
+**Per-turn breakdown (from wire.jsonl):**
+- TTFT: 1973–2645ms (median ~2.1s)
+- Stream duration: 2–65s (median ~7s)
+  - Clarification turns: 2–4s
+  - Implementation turns: 20–65s
+- Output tokens: 150–3339 per turn
+- Multi-step overhead: ~500ms per substep
+
+**Skill invocation latency:**
+- Brainstorming: 3–5 turns (~30–50s total)
+- Test-driven-development: 4–8 turns (~60–120s)
+
+### BORROWABLE MECHANISMS FOR CLAUDE CODE
+
+1. **System-prompt-as-registry:** Embed all available skills/tools in system prompt text; LLM reads and self-routes (zero-latency skill discovery).
+   - Implementation: inject `skillInstructions` markdown into system prompt at session start
+
+2. **Semantic tool-mapping layer:** Skills describe intent ("ask user"); system prose maps to tools ("AskUserQuestion"). No hard-coded if-then rules.
+   - Implementation: define mappings in CLAUDE.md or plugin manifest; LLM internalizes from prompt
+
+3. **Rule-based skill enforcement:** Superpowers' using-superpowers skill uses strong directives ("ABSOLUTELY MUST") + red-flags table to prevent rationalization.
+   - Implementation: bootstrap session-start skill with enforcement rules; repeat rules across system prompt
+
+4. **Multi-step tool selection (turSteps):** Orchestrate multiple LLM passes per turn (0.1, 0.2, ..., 0.8); LLM refines tool choices as context develops.
+   - Implementation: after first tool results, re-invoke LLM for next substep; feed back prior outcomes
+
+5. **Telemetry-driven feedback:** Capture `{ tool_name, outcome, duration_ms }` for every tool call; feed back outcomes + costs to LLM for next-turn decisions.
+   - Implementation: instrument all tool calls; expose tool stats in context; track per-model success rates for learning
+
+---
+
+**Absolute file paths relevant to implementation:**
+- `/data/data/com.termux/files/home/.kimi-code/config.toml` (configuration reference)
+- `/data/data/com.termux/files/home/.kimi-code/plugins/managed/superpowers/skills/using-superpowers/SKILL.md` (enforcement pattern)
+- `/data/data/com.termux/files/home/.kimi-code/plugins/managed/superpowers/.kimi-plugin/plugin.json` (plugin manifest format)

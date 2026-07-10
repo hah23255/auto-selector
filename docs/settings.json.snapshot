@@ -1,0 +1,265 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(which:*)",
+      "Bash(readlink:*)",
+      "Bash(head:*)",
+      "Bash(file:*)",
+      "Bash(stat:*)",
+      "Bash(command -v:*)",
+      "Bash(type:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(grep:*)",
+      "Bash(realpath:*)",
+      "Bash(dirname:*)",
+      "Bash(basename:*)",
+      "Bash(du:*)",
+      "Bash(df:*)",
+      "Bash(uname:*)",
+      "Bash(date:*)",
+      "Bash(jq:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)"
+    ],
+    "defaultMode": "auto"
+  },
+  "model": "claude-fable-5[1m]",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/task-gate.sh'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/read-guard.sh'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/format-dispatch.sh'",
+            "timeout": 60,
+            "statusMessage": "Formatting + linting written file"
+          },
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/format-prettier-async.sh'",
+            "timeout": 30,
+            "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "Skill|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/skill-telemetry.sh'",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/failure-triage.sh'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/notify.sh'",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/subagent-kimi-guard.sh'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/precompact-save.sh'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/stop-gate.sh'",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/log-rotate.sh'",
+            "timeout": 30,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/env-bootstrap.sh'",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/env-doctor.sh'",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/data/data/com.termux/files/home/.claude/hooks/state-reinject.sh'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "input=$(cat); used=$(echo \"$input\" | jq -r '.context_window.used_percentage // empty'); [ -n \"$used\" ] && printf 'ctx: %.0f%%' \"$used\" || echo 'ctx: --'"
+  },
+  "enabledPlugins": {
+    "agent-sdk-dev@claude-plugins-official": false,
+    "atomic-agents@claude-plugins-official": false,
+    "auth0@claude-plugins-official": false,
+    "bp@cc-blueprint-toolkit": false,
+    "cartographer@cartographer-marketplace": true,
+    "claude-code-setup@claude-plugins-official": false,
+    "claude-hud@claude-hud": false,
+    "claude-md-management@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": false,
+    "data-engineering@claude-plugins-official": false,
+    "desktop-commander@claude-plugins-official": false,
+    "feature-dev@claude-plugins-official": false,
+    "figma@claude-plugins-official": false,
+    "firebase@claude-plugins-official": false,
+    "flow-next@gmickel-claude-marketplace": false,
+    "frontend-design@claude-plugins-official": false,
+    "gopls-lsp@claude-plugins-official": false,
+    "greptile@claude-plugins-official": false,
+    "homunculus@homunculus": false,
+    "hookify@claude-plugins-official": false,
+    "huggingface-skills@claude-plugins-official": false,
+    "kotlin-lsp@claude-plugins-official": false,
+    "langfuse-observability@claude-plugins-official": false,
+    "langfuse@claude-plugins-official": false,
+    "learning-output-style@claude-plugins-official": false,
+    "linear@claude-plugins-official": false,
+    "liquid-skills@claude-plugins-official": false,
+    "math-olympiad@claude-plugins-official": false,
+    "playground@claude-plugins-official": false,
+    "playwright@claude-plugins-official": false,
+    "plugin-dev@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": false,
+    "prisma@claude-plugins-official": false,
+    "pydantic-ai@claude-plugins-official": false,
+    "pyright-lsp@claude-plugins-official": true,
+    "qdrant-skills@claude-plugins-official": false,
+    "ralph-loop@claude-plugins-official": false,
+    "redis-development@claude-plugins-official": false,
+    "remember@claude-plugins-official": false,
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "safety-net@cc-marketplace": true,
+    "security-guidance@claude-plugins-official": false,
+    "sentry@claude-plugins-official": false,
+    "serena@claude-plugins-official": false,
+    "skill-creator@claude-plugins-official": false,
+    "supabase@claude-plugins-official": false,
+    "superpowers@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": false,
+    "vercel@claude-plugins-official": false
+  },
+  "advisorModel": "fable",
+  "autoUpdatesChannel": "stable",
+  "minimumVersion": "2.1.201",
+  "tui": "fullscreen",
+  "skipWorkflowUsageWarning": true,
+  "theme": "dark-daltonized",
+  "autoCompactEnabled": true,
+  "remoteControlAtStartup": true,
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
+  "autoUpdates": false
+}
