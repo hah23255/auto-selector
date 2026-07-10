@@ -362,7 +362,7 @@ log_tail_matches_quota() { # LOGFILE -> 0 if quota/auth failure text present
 	# Marker set aligned with subagent-kimi-guard.sh (proven kimi failure strings).
 	# 429 must carry HTTP context — bare 429 matches line numbers/byte counts.
 	tail -n 20 "$1" 2>/dev/null | awk '{ l = tolower($0) }
-	l ~ /quota|rate[_ ]limit|rpm limit|too many requests|(status|http|code|error)[: ]+429|termios|unauthorized|not logged in/ { found = 1 }
+	l ~ /quota|rate[_ ]limit|rpm limit|too many requests|(status|http|code|error)[: ]+429|termios|unauthorized|not logged in|auth[._ ]?error|api key .*(invalid|expired)/ { found = 1 }
 	END { exit !found }'
 }
 

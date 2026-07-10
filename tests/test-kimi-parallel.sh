@@ -271,6 +271,22 @@ FAKE_KIMI_MODE=ok bash "$KP" --repo "$T/repo29d" --results-dir "$T/r29d" "$T/bri
 [ "$(git -C "$T/repo29d" config --local user.email)" = "hah23255@users.noreply.github.com" ] &&
 	ok "bot local identity overwritten, not trusted" || ko "bot local identity overwritten, not trusted (got: $(git -C "$T/repo29d" config --local user.email))"
 
+echo "== T30 provider auth errors classify as quota-family (fallback hint) =="
+# Observed live 2026-07-10: expired API key -> provider.auth_error: 401, which
+# classified FAILED(exit) and skipped the agy-fallback hint. Own shim so the
+# test is immune to changes in the main fake-kimi modes.
+mkdir -p "$T/bin30"
+cat >"$T/bin30/kimi" <<'EOF'
+#!/data/data/com.termux/files/usr/bin/bash
+[ "${1:-}" = "--help" ] && { echo "usage: kimi -p <prompt>"; exit 0; }
+echo "error: failed to run prompt: provider.auth_error: 401 The API Key appears to be invalid or may have expired." >&2
+exit 1
+EOF
+chmod +x "$T/bin30/kimi"
+out=$(PATH="$T/bin30:$PATH" bash "$KP" --repo "$W" --results-dir "$T/r30" "$T/brief-one.md" 2>&1)
+echo "$out" | grep -q "FAILED(quota)" && ok "401 auth error -> FAILED(quota)" || ko "401 auth error -> FAILED(quota) (got: $(echo "$out" | grep FAILED))"
+echo "$out" | grep -q "agy-delegate\|native subagents" && ok "fallback hint printed on auth error" || ko "fallback hint printed on auth error"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
 exit "$fail"
