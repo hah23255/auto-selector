@@ -200,6 +200,25 @@ fi
 printf -- '## Goal\ng\n## Scope\ns\n## Requirements\nr\n## Verification\nv\n' >"$T/sectioned.md"
 FAKE_KIMI_MODE=ok bash "$KP" --repo "$W" --results-dir "$T/r22b" --lint "$T/sectioned.md" >/dev/null 2>&1 && ok "--lint passes sectioned brief" || ko "--lint passes sectioned brief"
 
+echo "== T24 CRLF brief: frontmatter honored, lint passes =="
+printf -- '---\r\nmodel: crlf/model\r\n---\r\n## Goal\r\ng\r\n## Scope\r\ns\r\n## Requirements\r\nr\r\n## Verification\r\nv\r\n' >"$T/crlf.md"
+out=$(FAKE_KIMI_MODE=args bash "$KP" --repo "$W" --results-dir "$T/r24" --lint "$T/crlf.md" 2>&1)
+rc=$?
+grep -q "crlf/model" "$T/r24/crlf.log" 2>/dev/null && [ $rc -eq 0 ] && ok "CRLF frontmatter model honored + lint OK" || ko "CRLF frontmatter model honored + lint OK (rc=$rc)"
+grep -q -- "---" "$T/r24/crlf.log" 2>/dev/null && ko "CRLF frontmatter stripped from prompt" || ok "CRLF frontmatter stripped from prompt"
+
+echo "== T25 quoted + trailing-space frontmatter values normalized =="
+printf -- '---\nmodel: "quoted/model"   \n---\nbody here\n' >"$T/quoted.md"
+FAKE_KIMI_MODE=args bash "$KP" --repo "$W" --results-dir "$T/r25" "$T/quoted.md" >/dev/null 2>&1
+grep -q 'ARGV>>>quoted/model<<<' "$T/r25/quoted.log" 2>/dev/null && ok "quotes + trailing spaces stripped from value" || ko "quotes + trailing spaces stripped from value"
+
+echo "== T26 --json + schema brief rejected =="
+if bash "$KP" --repo "$W" --results-dir "$T/r26" --json "$T/fm-schema.md" >/dev/null 2>&1; then
+	ko "--json + schema rejected upfront"
+else
+	ok "--json + schema rejected upfront"
+fi
+
 echo "== T23 missing schema file fails prelaunch =="
 printf -- '---\nschema: nope.json\n---\nx y z\n' >"$T/fm-noschema.md"
 out=$(FAKE_KIMI_MODE=ok bash "$KP" --repo "$W" --results-dir "$T/r23" "$T/fm-noschema.md" 2>&1)

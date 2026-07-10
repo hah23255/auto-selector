@@ -6,8 +6,8 @@ IN=$(cat 2>/dev/null)
 SID=$(printf '%s' "$IN" | jq -r '.session_id // empty' 2>/dev/null)
 [ -n "$SID" ] || exit 0
 # Compaction wiped any injected task-gate directive from context; clear the
-# gate's dedup state so the next prompt re-injects (post-compact blind spot fix).
-rm -f "$CACHE_DIR/task-gate-$SID.state" 2>/dev/null
+# gate's dedup state (archetype + effort) so the next prompt re-injects.
+rm -f "$CACHE_DIR/task-gate-$SID.state" "$CACHE_DIR/task-gate-$SID.eff" 2>/dev/null
 f="$CACHE_DIR/precompact-$SID.md"
 [ -f "$f" ] || exit 0
 ctx=$(head -c 1500 "$f" 2>/dev/null)

@@ -16,7 +16,7 @@ if [ -f "$CACHE_DIR/skill-telemetry.jsonl" ]; then
 	tail -n 2000 "$CACHE_DIR/skill-telemetry.jsonl" >"$CACHE_DIR/skill-telemetry.jsonl.new.$$" 2>/dev/null &&
 		mv "$CACHE_DIR/skill-telemetry.jsonl.new.$$" "$CACHE_DIR/skill-telemetry.jsonl" 2>/dev/null
 fi
-for f in "$CACHE_DIR"/task-gate-*.state; do
+for f in "$CACHE_DIR"/task-gate-*.state "$CACHE_DIR"/task-gate-*.eff; do
 	[ -f "$f" ] || continue
 	age=$((now - $(stat -c %Y "$f" 2>/dev/null || echo "$now")))
 	[ "$age" -gt 604800 ] && rm -f "$f" 2>/dev/null

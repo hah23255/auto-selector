@@ -131,6 +131,17 @@ done
 
 case "$SCHEMA_MODE" in strict | salvage | warn) ;; *) die "bad --schema-mode: $SCHEMA_MODE (strict|salvage|warn)" ;; esac
 
+# schema: briefs need python3, and are incompatible with --json (the stream-json
+# wrapper event is what the validator would extract, never the agent's answer).
+has_schema=0
+for b in "${BRIEFS[@]}"; do
+	[[ -n "$(fm_get "$b" schema)" ]] && has_schema=1
+done
+if [[ $has_schema -eq 1 ]]; then
+	[[ $JSON -eq 0 ]] || die "--json cannot be combined with schema: briefs (stream wrapper breaks validation); drop --json"
+	command -v python3 >/dev/null 2>&1 || die "schema: briefs need python3 on PATH (validate_output.py)"
+fi
+
 if [[ $LINT -eq 1 ]]; then
 	for b in "${BRIEFS[@]}"; do
 		lint_brief "$b" || exit 1
@@ -346,10 +357,15 @@ for i in "${!PIDS[@]}"; do
 				;;
 			esac
 		elif [[ -n "$schema" && "$SCHEMA_MODE" == "warn" ]]; then
-			python3 "$SCRIPT_DIR/validate_output.py" \
+			if ! python3 "$SCRIPT_DIR/validate_output.py" \
 				"$RESULTS_DIR/${NAMES[$i]}.log" "$schema" \
-				--out "$RESULTS_DIR/${NAMES[$i]}.partial.json" >/dev/null 2>&1 ||
-				echo "  warn: [${NAMES[$i]}] schema violations (see ${NAMES[$i]}.partial.json)"
+				--out "$RESULTS_DIR/${NAMES[$i]}.partial.json" >/dev/null 2>&1; then
+				if [[ -f "$RESULTS_DIR/${NAMES[$i]}.partial.json" ]]; then
+					echo "  warn: [${NAMES[$i]}] schema violations (see ${NAMES[$i]}.partial.json)"
+				else
+					echo "  warn: [${NAMES[$i]}] no JSON object extractable from log"
+				fi
+			fi
 		fi
 	else
 		rc=$?

@@ -64,9 +64,10 @@ echo "== must stay silent (verified false positives) =="
 check "prefix !fix" SILENT "the prefix on those log lines looks inconsistent"
 check "preview !review" SILENT "open the preview of the page"
 check "suffix !fix" SILENT "change the suffix handling please"
-# Since Phase 2 these gate [bundle] (copy/sync aliases); the original defect —
-# routing to [config] via the *hook* substring — must stay dead.
-check "Hooks_project copy -> bundle not config" bundle "copy the report to Hooks_project please"
+# v6: copy-family dropped from bundle (confirmed everyday-sense overreach), so
+# the copy phrasing is silent again; sync still gates [bundle]. The original
+# defect — routing to [config] via the *hook* substring — must stay dead.
+check "Hooks_project copy -> silent (copy dropped)" SILENT "copy the report to Hooks_project please"
 check "Hooks_project sync -> bundle not config" bundle "sync the Hooks_project folder now"
 check "plain question" SILENT "explain the concept of closures"
 check "slash cmd" SILENT "/compact focus on things"
@@ -123,9 +124,54 @@ check "coverage" test "improve the coverage of the auth module"
 check "commit" commit "commit the changes and push to origin"
 check "create a pr" commit "create a pr for this branch"
 check "bundle verb" bundle "bundle the updated state please"
-check "copy to" bundle "copy the docs to the project folder"
+check "copy everyday sense stays silent" SILENT "copy the docs to the project folder"
 check "remember -> memory" memory "remember that the proxy needs auth"
 check "BG запомни" memory "запомни че прокси сървърът иска парола"
+
+echo "== v6: adversarially confirmed precedence + overlay fixes =="
+check "commit to memory -> memory not commit" memory "commit this to memory: the staging api key location"
+check "hooks bundle sync -> bundle not config" bundle "sync the hooks bundle to Documents like we always do"
+n=$((n + 1))
+d=$(printf '%s' '{"session_id":"v6a","prompt":"think hardware requirements before we build the module"}' | HOME="$T" bash "$GATE" | jq -r '.hookSpecificOutput.additionalContext')
+case "$d" in
+*EFFORT*)
+	fail=$((fail + 1))
+	echo "FAIL  'think hardware' must not trigger HIGH overlay (got: $d)"
+	;;
+*"[build]"*)
+	pass=$((pass + 1))
+	echo "PASS  'think hardware' -> build, no effort overlay"
+	;;
+*)
+	fail=$((fail + 1))
+	echo "FAIL  'think hardware' -> build, no effort overlay (got: $d)"
+	;;
+esac
+n=$((n + 1))
+ctrl=$(printf 'fix the bug \x01\x1b[31m in the parser')
+printf '%s' "$ctrl" | jq -Rs '{session_id:"v6b", prompt:.}' | HOME="$T" bash "$GATE" >/dev/null
+if jq -e 'select(.sid == "v6b")' "$T/.claude/hooks/cache/skill-telemetry.jsonl" >/dev/null 2>&1 &&
+	jq -s '.' "$T/.claude/hooks/cache/skill-telemetry.jsonl" >/dev/null 2>&1; then
+	pass=$((pass + 1))
+	echo "PASS  control chars stripped; telemetry JSONL stays jq-parseable"
+else
+	fail=$((fail + 1))
+	echo "FAIL  control chars stripped; telemetry JSONL stays jq-parseable"
+fi
+n=$((n + 1))
+a=$(run v6c "fix the parser error in the module")
+b=$(printf '%s' '{"session_id":"v6c","prompt":"quickly fix the other error too"}' | HOME="$T" bash "$GATE" | jq -r '.hookSpecificOutput.additionalContext // empty')
+c=$(printf '%s' '{"session_id":"v6c","prompt":"quickly fix the third error too"}' | HOME="$T" bash "$GATE")
+case "$a:$b:$c" in
+fix:*"EFFORT: user signalled LOW"*:"")
+	pass=$((pass + 1))
+	echo "PASS  new LOW effort re-injects despite same archetype; then dedups"
+	;;
+*)
+	fail=$((fail + 1))
+	echo "FAIL  effort-change dedup (a=$a b=${b:0:60} c=${c:0:40})"
+	;;
+esac
 
 echo "== phase 2: precedence guards =="
 check "failing tests -> fix wins over test" fix "the tests are failing again"

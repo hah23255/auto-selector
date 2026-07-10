@@ -5,19 +5,26 @@
 # (GNU `timeout 0` means NO limit). NOTE: agy_lib.sh upstream still has the
 # octal bug — port these fixes there.
 
+# All helpers strip trailing \r first: CRLF briefs (authored on other machines)
+# would otherwise silently disable frontmatter, leak it into the prompt, and
+# fail lint on every section header.
 fm_get() { # FILE KEY -> print frontmatter value or nothing
 	awk -v key="$2" '
+    { sub(/\r$/, "") }
     NR==1 && $0 != "---" { exit }
     NR==1 { infm=1; next }
     infm && $0 == "---" { exit }
     infm && index($0, key ":") == 1 {
       v = substr($0, length(key) + 2)
-      sub(/^[ \t]+/, "", v); print v; exit
+      sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
+      if (v ~ /^".*"$/) { v = substr(v, 2, length(v) - 2) }
+      print v; exit
     }' "$1"
 }
 
 brief_body() { # FILE -> print brief with frontmatter stripped
 	awk '
+    { sub(/\r$/, "") }
     NR==1 && $0 != "---" { nofm=1 }
     nofm { print; next }
     NR==1 { infm=1; buf[bn++]=$0; next }
@@ -31,7 +38,7 @@ lint_brief() { # FILE -> 0 if all required sections present, else 1 + stderr
 	local f="$1" missing=""
 	local sec
 	for sec in "## Goal" "## Scope" "## Requirements" "## Verification"; do
-		if ! awk -v s="$sec" '{ line=$0; sub(/[ \t]+$/, "", line) } line == s { found=1 } END { exit !found }' "$f"; then
+		if ! awk -v s="$sec" '{ line=$0; sub(/[ \t\r]+$/, "", line) } line == s { found=1 } END { exit !found }' "$f"; then
 			missing="$missing $sec;"
 		fi
 	done
