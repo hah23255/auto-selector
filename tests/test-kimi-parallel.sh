@@ -331,6 +331,34 @@ rc=$?
 echo "$out" | grep -q "FAILED(schema)" && [ $rc -ne 0 ] && ok "without --repair -> FAILED" || ko "without --repair -> FAILED"
 echo "$out" | grep -q "(repaired)" && ko "without --repair shouldn't show repaired in footer" || ok "without --repair shouldn't show repaired in footer"
 
+echo "== T35-T37 --clean-output extraction =="
+cat >"$T/bin/kimi" <<'EOF'
+#!/data/data/com.termux/files/usr/bin/bash
+[ "${1:-}" = "--help" ] && { printf '%s\n' "${FAKE_HELP:-usage: kimi -p <prompt> --output-format <fmt>}"; exit 0; }
+case "${FAKE_KIMI_MODE:-ok}" in
+ok) echo "task done"; exit 0 ;;
+stream)
+	printf '%s\n' '{"type":"text","content":"hello "}'
+	printf '%s\n' 'not json noise'
+	printf '%s\n' '{"type":"text","content":"world"}'
+	exit 0 ;;
+bullets) printf '• task done\nTo resume this session: kimi --resume abc\n'; exit 0 ;;
+esac
+EOF
+chmod +x "$T/bin/kimi"
+out=$(FAKE_HELP="usage: kimi -p <prompt> --output-format text|stream-json" FAKE_KIMI_MODE=stream \
+	bash "$KP" --repo "$W" --results-dir "$T/r35" --clean-output "$T/brief-one.md" 2>&1)
+[ "$(cat "$T/r35/brief-one.out" 2>/dev/null)" = "hello world" ] &&
+	ok "stream-json extraction -> exact text in .out" || ko "stream-json extraction -> exact text in .out (got: $(cat "$T/r35/brief-one.out" 2>/dev/null))"
+out=$(FAKE_HELP="usage: kimi -p <prompt>" FAKE_KIMI_MODE=bullets \
+	bash "$KP" --repo "$W" --results-dir "$T/r36" --clean-output "$T/brief-one.md" 2>&1)
+rc=$?
+echo "$out" | grep -q "falling back to text scrub" && ok "unsupported stream-json -> fallback note" || ko "unsupported stream-json -> fallback note"
+[ $rc -eq 0 ] && [ "$(cat "$T/r36/brief-one.out" 2>/dev/null)" = "task done" ] &&
+	ok "text scrub strips bullet + resume hint" || ko "text scrub strips bullet + resume hint (rc=$rc, got: $(cat "$T/r36/brief-one.out" 2>/dev/null))"
+FAKE_KIMI_MODE=ok bash "$KP" --repo "$W" --results-dir "$T/r37" "$T/brief-one.md" >/dev/null 2>&1
+[ ! -e "$T/r37/brief-one.out" ] && ok "no .out without --clean-output" || ko "no .out without --clean-output"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
 exit "$fail"

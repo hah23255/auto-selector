@@ -17,6 +17,8 @@
 #   --no-worktree          Run all agents directly in --repo (only safe if scopes
 #                          are truly disjoint; no per-agent isolation)
 #   --json                 Use Kimi's --output-format stream-json (machine-readable logs)
+#   --clean-output         Extract clean assistant text to <name>.out (stream-json when
+#                          the CLI supports it, else bullet/resume-hint text scrub)
 #   --results-dir <path>   Where to write logs (default: <repo>/.kimi-runs/<timestamp>)
 #   --max-parallel <n>     Cap concurrent agents (default: all at once)
 #   --base <ref>           Branch/ref to base worktrees on (default: current HEAD)
@@ -52,6 +54,7 @@ MODEL=""
 TIMEOUT="15m"
 USE_WORKTREE=1
 JSON=0
+CLEAN_OUTPUT=0
 RESULTS_DIR=""
 MAX_PARALLEL=0
 BASE_REF=""
@@ -94,6 +97,10 @@ while [[ $# -gt 0 ]]; do
 		JSON=1
 		shift
 		;;
+	--clean-output)
+		CLEAN_OUTPUT=1
+		shift
+		;;
 	--results-dir)
 		RESULTS_DIR="${2:?}"
 		shift 2
@@ -133,8 +140,11 @@ command -v kimi >/dev/null 2>&1 || die "kimi CLI not found on PATH. Install from
 # non-interactive prompt mode; 0.23.x REJECTS --print (bare -p IS prompt mode,
 # non-TTY-safe). Sniff the static help once — costs no quota. Timeout-wrapped:
 # NO unbounded kimi call anywhere in this script, the sniff included.
+KIMI_HELP="$(timeout -k 2 5 kimi --help 2>/dev/null || true)"
 PRINT_ARGS=()
-case "$(timeout -k 2 5 kimi --help 2>/dev/null)" in *--print*) PRINT_ARGS=(--print) ;; esac
+case "$KIMI_HELP" in *--print*) PRINT_ARGS=(--print) ;; esac
+SUPPORTS_STREAM_JSON=0
+case "$KIMI_HELP" in *stream-json*) SUPPORTS_STREAM_JSON=1 ;; esac
 [[ ${#BRIEFS[@]} -gt 0 ]] || die "no brief files given. See --help."
 [[ -d "$REPO" ]] || die "repo path not found: $REPO"
 REPO="$(cd "$REPO" && pwd)"
@@ -233,6 +243,13 @@ mkdir -p "$RESULTS_DIR"
 
 OUTPUT_FMT_ARGS=()
 [[ $JSON -eq 1 ]] && OUTPUT_FMT_ARGS=(--output-format stream-json)
+if [[ $CLEAN_OUTPUT -eq 1 ]]; then
+	if [[ $SUPPORTS_STREAM_JSON -eq 1 ]]; then
+		[[ $JSON -eq 0 ]] && OUTPUT_FMT_ARGS+=(--output-format stream-json)
+	else
+		echo "note: --clean-output: stream-json unsupported by this kimi; falling back to text scrub" >&2
+	fi
+fi
 
 echo "Kimi parallel delegation"
 echo "  repo:        $REPO"
@@ -377,19 +394,42 @@ log_tail_matches_quota() { # LOGFILE -> 0 if quota/auth failure text present
 	END { exit !found }'
 }
 
+clean_scrub() { # LOGFILE -> cleaned agent text on stdout (no framing/bullets/hints)
+	sed -e '/^=== .* ===$/d' \
+		-e 's/^• //' -e '/^To resume this session: /d' "$1" 2>/dev/null |
+		awk 'NF { p = 1 } p' | tac | awk 'NF { p = 1 } p' | tac
+}
+
 failed=0
 quota_seen=0
 partial=0
 repaired=0
 mkdir -p "$REPO/.kimi-runs"
 for i in "${!PIDS[@]}"; do
-	if wait "${PIDS[$i]}"; then
-		rc=0
+	wait "${PIDS[$i]}"
+	rc=$?
+	log_file="$RESULTS_DIR/${NAMES[$i]}.log"
+	out_file="$RESULTS_DIR/${NAMES[$i]}.out"
+	if [[ $CLEAN_OUTPUT -eq 1 ]]; then
+		# stream-json path: pull assistant text out of the event lines (mixed
+		# non-JSON lines tolerated); empty extraction falls back to the text
+		# scrub (leading "• " bullet + resume-hint trailer).
+		if [[ "${OUTPUT_FMT_ARGS[*]:-}" == *stream-json* ]]; then
+			jq -j -R 'fromjson? | .content // empty' "$log_file" >"$out_file" 2>/dev/null || true
+			[[ -s "$out_file" ]] || clean_scrub "$log_file" >"$out_file" 2>/dev/null
+		else
+			clean_scrub "$log_file" >"$out_file" 2>/dev/null
+		fi
+	fi
+	# schema validation reads the clean extraction when it exists
+	target_log="$log_file"
+	[[ $CLEAN_OUTPUT -eq 1 && -s "$out_file" ]] && target_log="$out_file"
+	if [[ $rc -eq 0 ]]; then
 		status="OK"
 		schema="${SCHEMAS[$i]}"
 		if [[ -n "$schema" && "$SCHEMA_MODE" != "warn" ]]; then
 			python3 "$SCRIPT_DIR/validate_output.py" \
-				"$RESULTS_DIR/${NAMES[$i]}.log" "$schema" \
+				"$target_log" "$schema" \
 				--out "$RESULTS_DIR/${NAMES[$i]}.partial.json"
 			vrc=$?
 
@@ -440,7 +480,7 @@ Reply with ONLY one JSON object that satisfies the schema. No prose."
 			esac
 		elif [[ -n "$schema" && "$SCHEMA_MODE" == "warn" ]]; then
 			if ! python3 "$SCRIPT_DIR/validate_output.py" \
-				"$RESULTS_DIR/${NAMES[$i]}.log" "$schema" \
+				"$target_log" "$schema" \
 				--out "$RESULTS_DIR/${NAMES[$i]}.partial.json" >/dev/null 2>&1; then
 				if [[ -f "$RESULTS_DIR/${NAMES[$i]}.partial.json" ]]; then
 					echo "  warn: [${NAMES[$i]}] schema violations (see ${NAMES[$i]}.partial.json)"
@@ -450,7 +490,6 @@ Reply with ONLY one JSON object that satisfies the schema. No prose."
 			fi
 		fi
 	else
-		rc=$?
 		# 124 = timeout via SIGTERM; 137 = the -k SIGKILL grace path (agent
 		# ignored TERM). Both are wall-clock kills, not agent errors.
 		if [[ $rc -eq 124 || $rc -eq 137 ]]; then
